@@ -1,0 +1,128 @@
+---
+title: "Stat 341 -- HW 1 "
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 2H1
+
+$P(A) = 0.5$
+
+$P(B) = 0.5$
+
+$P(twins | A) = 0.1$
+
+$P(twins | B) = 0.2$
+
+```{r 2h1}
+prior <- c(0.5, 0.5)
+likelihood <- c(0.1, 0.2)
+posterior <- prior * likelihood
+posterior_updated <- posterior/sum(posterior)
+prob <- sum(posterior_updated*likelihood)
+prob
+```
+
+The probability of a random species of panda having two consecutive birthings of twins is `r prob`
+
+## 2H2
+
+```{r 2h2}
+prior <- c(0.5, 0.5)
+likelihood <- c(0.1, 0.2)
+posterior <- prior * likelihood
+posterior_updated <- posterior/sum(posterior)
+posterior_updated
+```
+
+The probability of a panda from species A having two consecutive birthings of twins is `r posterior_updated[1]`
+
+## 2H3
+
+```{r}
+#first part - twins
+prior1 <- c(0.5, 0.5)
+likelihood1 <- c(0.1, 0.2)
+posterior1 <- prior1 * likelihood1
+posterior_updated1 <- posterior1/sum(posterior1)
+
+#second part - singleton
+prior2 <- posterior_updated1
+likelihood2 <- c(0.9, 0.8)
+posterior2 <- prior2 * likelihood2
+posterior_updated2 <- posterior2/sum(posterior2)
+posterior_updated2
+```
+
+The probability of a panda from species A having a birthing of twins then a singleton is `r posterior_updated2[1]`
+
+## 2H4
+
+```{r}
+# with results
+prior1 <- c(0.5, 0.5)
+likelihood <- c(0.8, 0.65)
+posterior1 <- prior1 * likelihood
+posterior_updated1 <- posterior1/sum(posterior1)
+
+# add previous data
+prior2 <- c(0.36, 0.64) 
+posterior2 <- prior2 * likelihood
+posterior_updated2 <- posterior2/sum(posterior2)
+posterior_updated2
+```
+
+
+
+
+The probability of a panda tested as species A is `r posterior_updated2[1]`

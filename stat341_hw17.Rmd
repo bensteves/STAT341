@@ -1,0 +1,224 @@
+---
+title: "Stat 341 -- PS 17"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+```
+
+
+
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 13h1
+
+```{r}
+data(bangladesh)
+```
+
+```{r}
+bangladesh$district_id <- as.integer(as.factor(bangladesh$district))
+bangladesh <- bangladesh %>%
+  rename(c = use.contraception)
+```
+
+```{r}
+m13h1a <- ulam(
+  data = bangladesh %>% select(c, district_id),
+  alist(
+    c ~ dbinom(1, p),
+    logit(p) <- a[district_id],
+    a[district_id] ~ dnorm(0, 1)
+  ),
+  iter = 4000, chains = 4, cores = 4, log_lik = TRUE,
+     refresh = 0, file = "m13h1a"
+)
+```
+
+```{r}
+m13h1b <- ulam(
+  data = bangladesh %>% select(c, district_id),
+  alist(
+    c ~ dbinom(1, p),
+    logit(p) <- a[district_id],
+    a[district_id] ~ dnorm(a_bar, sigma),
+    a_bar ~ dnorm(0, 1.5),
+    sigma ~ dexp(1)
+  ),
+    iter = 4000, chains = 4, cores = 4, log_lik = TRUE,
+     refresh = 0, file = "m13h1b"
+)
+```
+
+```{r}
+Avg13h1a <-
+  link(m13h1a) %>%
+  apply(2, mean_hdci) %>%
+   bind_rows() %>%
+  bind_cols(bangladesh)
+```
+
+```{r fig.width = 7, fig.height = 3}
+gf_point(y ~ district_id, data = Avg13h1a, color = "red") %>%
+  gf_errorbar(ymin+ymax ~ district_id, data = Avg13h1a) %>%
+  gf_lims(y = c(0, 1))
+```
+
+```{r}
+Avg13h1b <-
+  link(m13h1b) %>%
+  apply(2, mean_hdci) %>%
+   bind_rows() %>%
+  bind_cols(bangladesh)
+```
+
+```{r fig.width = 7, fig.height = 3}
+gf_point(y ~ district_id, data = Avg13h1b, color = "blue") %>%
+  gf_errorbar(ymin+ymax ~ district_id, data = Avg13h1b) %>%
+  gf_lims(y = c(0, 1))
+```
+
+```{r fig.width = 7, fig.height = 3}
+gf_point(y ~ district_id, data = Avg13h1a, color = "red") %>%
+  gf_point(y ~ district_id, data = Avg13h1b, color = "blue")
+```
+
+```{r}
+mean_hdci(bangladesh$c)
+```
+
+In both models, values towards the mean of the data, 0.39, are not too far apart, with blue (the multi-level model) being slightly closer to the mean. When getting farther away from the mean, blue values are almost always predicted as being closer to the mean than the red values, so the multi-level model overall is predicting closer to the mean of the data than the fixed model. There is a large discrepancy for district 3 because there is not much data for that district. District 3 and district 14 have very similar predictions from the fixed model, but very different predictions for the multi-level model, as there is much more data for district 14. It seems like the more data that exists for a district, the closer the predictions are between the two models. The multi-level model overall is much tighter to the mean as we are making it so that the model decides what values of a_bar and sigma are acceptable for each district. 
+
+## 15h4
+
+```{r}
+data(Primates301)
+```
+
+```{r}
+Primates <-
+  Primates301 %>%
+  drop_na(body, brain) %>%
+  mutate(
+    M = body / max(body),
+    B = brain / max(brain, na.rm = TRUE),
+    Bse = 0.1 * B,
+    Mse = 0.1 * M,
+    species_idx = as.numeric(factor(species))
+  )
+glimpse(Primates)
+```
+
+
+
+```{r results = FALSE}
+m15H4a <-
+  ulam(
+    data = Primates %>% select(brain, body, B, M, Bse, Mse, species),
+    alist(
+      B ~ dlnorm(mu, sigma),
+      mu <- a + b * log(M),
+      a ~ dnorm(0, 1),
+      b ~ dnorm(0,1),
+      sigma ~ dexp(1)
+      ),
+    iter = 4000, chains = 4, cores = 4,
+    file = "m15H4aa"
+  )
+```
+
+```{r}
+start=list( M_true=Primates$M , B_true=Primates$B )
+```
+
+
+```{r}
+m15H4b <-
+  ulam(
+    data = Primates %>% select(brain, body, B, M, Bse, Mse, species),
+    alist(
+      B ~ dnorm(B_true, Bse),
+      vector[182]:B_true ~ dlnorm(mu, sigma),
+      mu <- a + b * log(M_true[i]),
+      M ~ dnorm(M_true, Mse),
+      vector[182]:M_true ~ dlnorm(0.5, 0.3),
+      a ~ dnorm(0, 1),
+      b ~ dnorm(0, 1),
+      sigma ~ dexp(1)
+      ),
+    iter = 4000, chains = 4, cores = 4,
+    file = "m15H4bb"
+  )
+```
+
+```{r}
+precis(m15H4a)
+precis(m15H4b)
+precis(m15H4b, depth = 2) %>% head(10)
+```
+
+The mean intercept is smaller in the second model, and the slope is larger as well in the second model. 
+
+```{r}
+Avg15h4a <-
+  link(m15H4a) %>%
+  apply(2, mean_hdci) %>%
+   bind_rows() %>%
+  bind_cols(Primates)
+```
+
+```{r}
+Avg15h4b <-
+  link(m15H4b) %>%
+  apply(2, mean_hdci) %>%
+  bind_rows() %>%
+  bind_cols(Primates)
+```
+
+```{r fig.width = 6, fig.height = 4}
+gf_point(y ~ M, data = Avg15h4a, color = "red") %>%
+  gf_point(y ~ M, data = Avg15h4b, color = "blue")
+```
+
+There doesn't seem to be a large difference overall between the predictions of the two models, so any error taken into account didn't make a huge difference overall. 

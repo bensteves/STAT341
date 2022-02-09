@@ -1,0 +1,120 @@
+---
+title: "Stat 341 -- PS 11"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 8.3
+
+```{r simulate data}
+set.seed(222)
+x <- runif(1000, 0, 10)
+z <- rnorm(1000, x, 0.5)
+y <- rnorm(1000, z, 1)
+d8.3 <- data.frame(x, z, y)
+
+gf_point(y ~ x, data = d8.3) / gf_point(y ~ z, data = d8.3) 
+
+cor(d8.3$x, d8.3$z)
+```
+
+```{r model, results=FALSE}
+m8.3 <- 
+  ulam(
+    data = d8.3,
+    alist(
+      y ~ dnorm(mu, sigma),
+      mu <- a + bx*x + bz*z,
+      a ~ dnorm(0, 1),
+      c(bx, bz) ~ dnorm(0, 2),
+      sigma ~ dexp(1)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4, seed = 222)
+```
+
+```{r}
+precis(m8.3)
+```
+
+```{r fig.width = 6, fig.height = 4}
+traceplot_ulam(m8.3)
+```
+
+The model doesn't appear to be suffering from multicollinearity, as both bx and bz have pretty tight HDI bounds and don't have large standard deviations. 
+
+The dag is different between the two models, with the dag here, X -> Z ->Y, being a "pipe" shape, while, the leg model is more of a "collider" shape, with right_leg -> height <- left_leg. Also, the leg model suffered from multicollinearity, while this one does not appear to. 
+
+
+## 8.4
+
+```{r results = FALSE}
+m8.4 <- 
+  ulam(
+    data = d8.3,
+    alist(
+      y ~ dnorm(mu, sigma),
+      mu <- a + bz*z,
+      a ~ dnorm(0, 1),
+      bz ~ dnorm(0, 2),
+      sigma ~ dexp(1)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4, seed = 222)
+```
+
+```{r fig.width = 6, fig.height = 4}
+precis(m8.4)
+plot(precis(m8.3))
+plot(precis(m8.4))
+```
+
+This model more confidently predicts the slope for z, as the standard deviation for the first model was 0.06, compared to 0.01 for this model. The effective sample size for bz is also improved upon in model m8.4. Everything else between the two are about the same. 

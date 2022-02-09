@@ -1,0 +1,167 @@
+---
+title: "Stat 341 -- PS 6"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 4H1
+
+```{r}
+# filter adults
+data(Howell1)
+HowellAdults <-
+  Howell1 %>%
+  filter(age >= 18)
+```
+
+```{r}
+# fit model
+model4H1 <- 
+  quap(
+    data = HowellAdults,
+    alist(
+      height ~ dnorm(mu, sigma),
+      mu    <- alpha_0 + beta_1 * (weight - mean(weight)),
+      alpha_0 ~ dnorm(178, 20),
+      beta_1 ~ dlnorm(0, 1),
+      sigma  ~ dunif(0, 50)
+    )
+  )
+# get posteriors
+mean_weight = mean( ~ weight, data = HowellAdults)
+Posterior4H1 <-
+  extract.samples(model4H1, n = 1000) %>%
+  mutate(beta_0 = alpha_0 - beta_1 * mean_weight)
+```
+
+```{r}
+# using function from notes
+ind_height <- function(post, weight, prob = 0.89) {
+  n <- nrow(post)
+  post %>%
+    mutate(ind_height = rnorm(n, beta_0 + beta_1 * weight, sigma)) %>%
+    mean_hdi(ind_height, .width = prob) %>%
+    mutate(weight = weight)
+}
+
+# calculate HDI
+weights <- c(46.95, 43.72, 64.78, 32.59, 54.63)
+map_dfr(weights, ~ ind_height(Posterior4H1, .x))
+```
+
+
+## 4H2
+
+### a)
+
+```{r}
+# filter kids
+HowellKids <-
+  Howell1 %>%
+  filter(age < 18)
+```
+
+```{r}
+# fit model. prior reflects possible kids height.
+model4H2 <- 
+  quap(
+    data = HowellKids,
+    alist(
+      height ~ dnorm(mu, sigma),
+      mu    <- alpha_0 + beta_1 * (weight - mean(weight)),
+      alpha_0 ~ dnorm(115, 30),
+      beta_1 ~ dlnorm(0, 1),
+      sigma  ~ dunif(0, 50)
+    )
+  )
+
+# change in height per 10 units of weight
+summary4H2 <- precis(model4H2); summary4H2
+summary4H2$mean[2]*10
+```
+
+There is a 2.72 cm increase in height for each additional unit of weight. To get $\beta_1$ for each 10 units of weight, it's just 27.2, or 10*2.72. The height for a child of average weight is 108.32. The standard deviation of heights is 8.44.
+
+### b)
+
+```{r fig.width = 7, fig.height = 4}
+# mean and individual avg
+Link4H2 <-
+  link(model4H2, tibble(weight = seq(2, 45, by = 1)))
+Sim4H2 <- 
+  sim(model4H2, tibble(weight = seq(2, 45, by = 1)))
+
+Avg4H2 <- 
+  apply(Link4H2, 2, HPDI) 
+
+Avg4H2df <- as.data.frame(t(Avg4H2)) %>%
+    mutate(weight = seq(2, 45, by = 1),
+           ymin = `|0.89`,
+           ymax = `0.89|`)
+
+Ind4H2 <- 
+  apply(Sim4H2, 2, HPDI)
+
+Ind4H2df <- as.data.frame(t(Ind4H2)) %>%
+    mutate(weight = seq(2, 45, by = 1),
+           ymin = `|0.89`,
+           ymax = `0.89|`)
+
+gf_ribbon(ymin + ymax ~ weight, data = Ind4H2df, fill = ~"ind") %>%
+  gf_ribbon(ymin + ymax ~ weight, data = Avg4H2df, fill = ~"avg") %>%
+  gf_point(height ~ weight, data = HowellKids, inherit = FALSE) 
+```
+
+### c)
+
+The model is concerning for a few reasons. For one, the model is underestimates the actual heights of kids for given weight. In that same regard, there are many points that lie over the HDI boundary, mostly in the weight range of 15-35. The estimations were made assuming that the relationship between height and weight in kids is linear. However, this relationship is not very linear and is more quadratic. $\beta_1$ being log-normal is bad as it assumes a linear shape for the slope, so the distribution type for $\beta_1$ should be something different, something to fit a polynomial regression. 

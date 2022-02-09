@@ -1,0 +1,275 @@
+---
+title: "Stat 341 -- PS 16"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 13e2
+
+$y_i \sim Binomial(1, p_i)$
+
+$logit(p) = \alpha_{group[i]} + \beta_x$
+
+$\alpha_{group} \sim Normal(\bar{\alpha}, \sigma)$
+
+$\bar{\alpha} \sim Normal(0, 1.5)$
+
+$\sigma \sim Exponential(1)$
+
+$\beta_x \sim Normal(0, 0.5)$
+
+## 13e3
+
+$y_i \sim Normal(\mu_i, \sigma)$
+
+$\mu_i = \alpha_{group[i]} + \beta_x$
+
+$\beta_x \sim Normal(0, 1)$
+
+$\alpha_{group} \sim Normal(\bar{\alpha}, \sigma_a)$
+
+$\bar{\alpha} \sim Normal(0, 5)$
+
+$\sigma_a \sim Exponential(1)$
+
+$\sigma \sim Exponential(1)$
+
+## 13m1
+
+```{r}
+data(reedfrogs)
+reedfrogs <- reedfrogs %>%
+  mutate(tank = 1:nrow(reedfrogs),
+         size_bin = ifelse(size == "big", 1L, 0),
+         pred_bin = ifelse(pred == "pred", 1L, 0))
+```
+
+```{r}
+m13m1a <- ulam(
+  data = reedfrogs %>% select(surv, density, tank),
+  alist(
+    surv ~ dbinom(density, prob),
+    logit(prob) <- a[tank],
+    a[tank] ~ dnorm(a_bar, sigma),
+    a_bar ~ dnorm(0, 1.5),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, cores = 4, refresh = 0, log_lik = TRUE, 
+   iter = 4000, file = "m13m1a_1"
+)
+```
+
+```{r}
+m13m1b <- ulam(
+  data = reedfrogs %>% select(surv, density, tank, pred_bin),
+  alist(
+    surv ~ dbinom(density, prob),
+    logit(prob) <- a[tank] + p*pred_bin,
+    a[tank] ~ dnorm(a_bar, sigma),
+    a_bar ~ dnorm(0, 1.5),
+    p ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, cores = 4, refresh = 0, log_lik = TRUE,
+  iter = 4000, file = "m13m1b_1"
+)
+```
+
+```{r}
+m13m1c <- ulam(
+  data = reedfrogs %>% select(surv, density, tank, size_bin),
+  alist(
+    surv ~ dbinom(density, prob),
+    logit(prob) <- a[tank] + s*size_bin,
+    a[tank] ~ dnorm(a_bar, sigma),
+    a_bar ~ dnorm(0, 1.5),
+    s ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, cores = 4, refresh = 0, log_lik = TRUE, 
+   iter = 4000, file = "m13m1c_1"
+)
+```
+
+```{r}
+m13m1d <- ulam(
+  data = reedfrogs %>% select(surv, density, tank, size_bin, pred_bin),
+  alist(
+    surv ~ dbinom(density, prob),
+    logit(prob) <- a[tank] + s*size_bin + p*pred_bin,
+    a[tank] ~ dnorm(a_bar, sigma),
+    a_bar ~ dnorm(0, 1.5),
+    s ~ dnorm(0, 1),
+    p ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, cores = 4, refresh = 0, log_lik = TRUE, 
+   iter = 4000, file = "m13m1d_1"
+)
+```
+
+```{r}
+m13m1e <- ulam(
+  data = reedfrogs %>% select(surv, density, tank, size_bin, pred_bin),
+  alist(
+    surv ~ dbinom(density, prob),
+    logit(prob) <- a[tank] + s*size_bin + p*pred_bin + sp*size_bin*pred_bin,
+    a[tank] ~ dnorm(a_bar, sigma),
+    a_bar ~ dnorm(0, 1.5),
+    s ~ dnorm(0, 1),
+    p ~ dnorm(0, 1),
+    sp ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, cores = 4, refresh = 0, log_lik = TRUE, 
+   iter = 4000, file = "m13m1e_1"
+)
+```
+
+
+```{r fig.width=6, fig.height =4}
+plot(coeftab(m13m1a, m13m1b, m13m1c, m13m1d, m13m1e), pars = "sigma")
+```
+
+Values for sigma are higher in m13m1a (the model with just an intercept for each tank) and m13m1c (the model with an intercept for each tank and a slope for size). The models with sigmas at about 0.75 all have predation included in the model, so predation seems to cut the variability of tadpole survival across tanks. 
+
+## 13m2
+
+```{r fig.width = 6, fig.height = 4}
+compare(m13m1a, m13m1b, m13m1c, m13m1d, m13m1e) %>% pander()
+compare(m13m1a, m13m1b, m13m1c, m13m1d, m13m1e) %>% plot()
+```
+
+WAIC for all the models are very similar overall, m13m1b seems to have the lowest WAIC but it isn't really significant at all, and none of these models appear to be performing too much better over the other. 
+
+```{r}
+stanfit(m13m1a) %>%
+  mcmc_areas(pars = vars("a_bar", "sigma"))
+stanfit(m13m1b) %>%
+  mcmc_areas(pars = vars("a_bar", "p", "sigma"))
+stanfit(m13m1c) %>%
+  mcmc_areas(pars = vars("a_bar", "s", "sigma"))
+stanfit(m13m1d) %>%
+  mcmc_areas(pars = vars("a_bar", "s", "p", "sigma"))
+stanfit(m13m1e) %>%
+  mcmc_areas(pars = vars("a_bar", "s", "p", "sp", "sigma"))
+```
+
+a_bar is smaller in the two models without predation while sigma is larger. Predation is negative in all three models that it is in. Size becomes mostly positive after adding the interaction. In the posterior predictions, parameter valuesseem to differ depending on what other predictors are added. Overall, though, the different predictors dont have much of a profound effect on the performance of the model given WAIC. 
+
+## 13m6
+
+```{r}
+y <- 0
+d <- as.data.frame(y)
+```
+
+```{r}
+nn <- quap(
+  data = d,
+  alist(
+    y ~ dnorm(mu, 1),
+    mu ~ dnorm(10, 1)
+  )
+)
+```
+
+```{r}
+tn <- quap(
+  data = d,
+  alist(
+    y ~ dstudent(2, mu, 1),
+    mu ~ dnorm(10, 1)
+  )
+)
+```
+
+```{r}
+nt <- quap(
+  data = d,
+  alist(
+    y ~ dnorm(mu, 1),
+    mu ~ dstudent(2, 10, 1)
+  )
+)
+```
+
+```{r}
+tt <- quap(
+  data = d,
+  alist(
+    y ~ dstudent(2, mu, 1),
+    mu ~ dstudent(2, 10, 1)
+  )
+)
+```
+
+```{r fig.width=6, fig.height=3}
+set.seed(2)
+post_nt <- nt %>% extract.samples()
+post_tt <- tt %>% extract.samples()
+post_tn <- tn %>% extract.samples()
+post_nn <- nn %>% extract.samples()
+gf_dens(~mu, data = post_nt, color = ~"normal y, tstudents mu") %>%
+  gf_dens(~mu, data = post_tt, color = ~"tstudents y, tstudents mu") %>%
+  gf_dens(~mu, data = post_tn, color = ~"tsudents y, normal mu") %>%
+  gf_dens(~mu, data = post_nn, color = ~"normal y, normal mu")
+```
+
+Normal y, normal mu - centered at around 5. The likelihood is 0 and the mu is 10 from the prior, so the posterior sort of meets in the middle of the two.
+
+Normal y, tsudents mu - centered at around 0 to 1, has some negative values as well. It is centered at the likelihood, and tstudents distributions usually have more wiggle room so the data point may have a higher weight in this scenario.
+
+Tstudents y, normal mu - centered at around 9-10, which is close to the prior. Again, with more wiggle room in the students t distribution, the normal prior of 10 has a higher weight. 
+
+Tstudents y, tstudents mu - centered at 10 as well, though I expected it to be closer to 5. Overall, though, it seems with normal priors that it jumps across the posterior at a finer scale than a students-t distribution. 

@@ -1,0 +1,142 @@
+---
+title: "Stat 341 -- PS 9"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 9
+
+### a)
+
+```{r}
+set.seed(12345)
+```
+
+
+```{r}
+p <- function(theta) {
+  return((cos(4*pi*theta) + 1)^2 / 1.5)
+}
+```
+
+### b)
+
+```{r fig.width = 5, fig.height = 3}
+gf_function(fun = p, xlim = c(0, 1))
+```
+
+### c)
+
+```{r}
+integrate(p, lower = 0, upper = 1)
+```
+
+### d)
+
+```{r fig.width=6, fig.height=4}
+post9.1d <- metro_bern(0, 0, prior = p, step_size = 0.2)
+gf_dhistogram(~ theta, data = post9.1d, bins = 100)
+```
+
+There is no data/likelihood, so the samples have practically the same shape as the prior. 
+
+### e)
+
+```{r  fig.width=6, fig.height=4}
+post9.1e <- metro_bern(20, 30, prior = p, step_size = 0.2)
+gf_dhistogram(~ theta, data = post9.1e, bins = 100)
+```
+
+I don't think these results are completely reasonable. The density of the posterior is not really multimodal, meaning our step size might be bad, our start value is too limiting, or the MCMC just isn't amazing at working with multimodal priors. I'm pretty sure it should also be considering the two ends of the original distribution as well, as only half of the original distribution is centered around 0.5, but this also could just be because of the likelihood. 
+
+
+### f)
+
+```{r fig.width=6, fig.height=4}
+post9.1f <- metro_bern(20, 30, prior = p, step_size = 0.02)
+gf_dhistogram(~ theta, data = post9.1f, bins = 100)
+```
+
+This plot is even more unimodal, as the last one had a few stragglers out in between theta values 0.8 and 0.9. The step size is less, so the density is a little more evened out than the last plot, and it is moving slower from theta to the next theta. 
+
+### g)
+
+```{r fig.width=6, fig.height=4}
+post9.1g1 <- metro_bern(20, 30, prior = p, step_size = 0.02, start = 0.15)
+gf_dhistogram(~ theta, data = post9.1g1, bins = 100)
+```
+```{r fig.width=6, fig.height=4}
+post9.1g2 <- metro_bern(20, 30, prior = p, step_size = 0.02, start = 0.95)
+gf_dhistogram(~ theta, data = post9.1g2, bins = 100)
+```
+
+Starting from different start values can speed up convergence, if appropriately picked. 
+
+### h)
+
+For red lines, put in values close to the mode for each respective posterior distribution. 
+
+```{r fig.width=8, fig.height=7}
+gf_line(theta ~ step, data = post9.1f) %>% 
+  gf_hline(yintercept = ~ 0.57, color = ~ "0.5") /
+gf_line(theta ~ step, data = post9.1g1) %>% 
+  gf_hline(yintercept = ~ 0.59, color = ~ "0.15") /
+gf_line(theta ~ step, data = post9.1g2) %>% 
+  gf_hline(yintercept = ~ 0.85, color = ~ "0.95") %>%
+  gf_hline(yintercept = ~ 0.57, color = ~ "0.95")
+```
+
+### i)
+
+In trace plots, we can see how quick the jumps are in the posterior, where they are concentrated or where they are moving about the posterior space. Trace plots are usually good if there is some sort of constant movement across the mode. They are usually bad if they are not concentrated at the mode for a large number of steps. In other words, the jumps should not be slow. 
+

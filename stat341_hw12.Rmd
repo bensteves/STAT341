@@ -1,0 +1,239 @@
+---
+title: "Problem Set 12"
+author: "Ben Steves"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include=FALSE}
+
+# load dagitty, and hack to make it work (we hope)
+library(dagitty)
+dagitty("dag{}")
+
+# our favorite suite of packages
+library(ggformula)      # formula interface to ggplot2
+library(R2jags)         # use JAGS from R
+
+library(rstan)          # use Stan from R
+library(rethinking)     # Statistical Rethinking
+library(bayesplot)      # plots related to Bayesian data analysis
+library(coda)           # work with MCMC samples
+library(CalvinBayes)    # load after coda and bayesplot
+library(brms)           
+library(ggmcmc)
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+# rstan configuration -- as recommended by rstan
+  # use as many cores as are available
+  options(mc.cores = parallel::detectCores())
+  # To avoid recompilation of unchanged Stan programs, we recommend calling
+  rstan_options(auto_write = TRUE)
+
+# this sets the black/white theme for plots.
+# you can change the base_size to control the size of the text elements in the plot
+theme_set(theme_bw(base_size = 8)) 
+
+knitr::opts_chunk$set(
+  error = TRUE,     # display error message and keep going if there is an error
+  tidy = FALSE,     # display code as typed
+  size = "small",   # slightly smaller font for code
+  fig.width = 3.0,  # width of figures (can be overridden in individual chunks)
+  fig.height = 2.0, # heights of figures (can be overridden in individual chunks)
+  fig.show = "hold" # put all figures after all the code
+)
+```
+
+
+## 6M3
+
+### 1
+
+```{r}
+dag1 <- dagitty("dag{X -> Y
+              X <- Z -> Y
+              X <- Z <- A -> Y
+               }")
+drawdag(dag1)
+impliedConditionalIndependencies(dag1)
+adjustmentSets(dag1, exposure = "X", outcome = "Y")
+```
+
+Z needs to be conditioned to close both X <- Z -> Y and X <- Z <- A -> Y.
+
+### 2
+
+```{r}
+dag2 <- dagitty("dag{X -> Y
+              X -> Z -> Y
+              X -> Z <- A -> Y
+               }")
+drawdag(dag2)
+impliedConditionalIndependencies(dag2)
+adjustmentSets(dag2, exposure = "X", outcome = "Y")
+```
+
+The first two paths are causal and the last path has a collider, so we don't condition on anything.
+
+### 3
+
+```{r}
+dag3 <- dagitty("dag{X -> Y
+              X -> Z <- Y
+              X <- A -> Z <- Y
+               }")
+drawdag(dag3)
+impliedConditionalIndependencies(dag3)
+adjustmentSets(dag3, exposure = "X", outcome = "Y")
+```
+
+The last two paths have a collider and the first one is causal, so there is no conditioning for this dag.
+
+### 4
+
+```{r}
+dag4 <- dagitty("dag{X -> Y
+              X -> Z -> Y
+              X <- A -> Z -> Y
+               }")
+drawdag(dag4)
+impliedConditionalIndependencies(dag4)
+adjustmentSets(dag4, exposure = "X", outcome = "Y")
+```
+
+A needs to be conditioned to close the path X <- A -> Z -> Y. 
+
+## 6H3
+
+```{r}
+fox_dag <- dagitty("dag{ Area -> Avgfood -> Weight
+                   Avgfood -> Groupsize -> Weight}")
+drawdag(fox_dag)
+adjustmentSets(fox_dag, exposure = "Area", outcome = "Weight")
+```
+
+
+```{r}
+data(foxes); foxes <- foxes
+foxes <- foxes %>%
+  mutate(avgfoodSTZD = rethinking::standardize(avgfood),
+         weightSTZD = rethinking::standardize(weight),
+         areaSTZD = rethinking::standardize(area),
+         groupsizeSTZD = rethinking::standardize(groupsize))
+```
+
+```{r}
+gf_point(weightSTZD ~ areaSTZD, data = foxes)
+```
+
+
+```{r results=FALSE}
+m6h3 <-
+  ulam(
+    data = foxes,
+    alist(
+      weightSTZD ~ dnorm(mu, sigma),
+      mu <- b0 + b_a * areaSTZD,
+      b0 ~ dnorm(0, 0.2),
+      b_a ~ dnorm(0, 0.4),
+      sigma ~ dexp(1)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 6)
+```
+
+```{r results = FALSE}
+set.seed(34)
+FoxPriorSamples <- m6h3 %>%
+  extract.prior(n = 1000) %>% as.data.frame()
+```
+
+```{r}
+gf_abline(slope = ~ b_a, intercept = ~b0,
+            data = FoxPriorSamples, alpha = 0.2) %>%
+  gf_lims(x = c(-4, 4), y = c(-4, 4)) %>%
+  gf_abline(slope = ~ c(-1, 1), intercept = ~c(0,0),
+            data = NA,
+            inherit = FALSE,
+            color = "red", linetype = "dotted")
+```
+
+```{r}
+stanfit(m6h3) %>%
+  mcmc_areas(pars = vars(-lp__))
+```
+
+The model has b_a centered at about 0, indicating area doesn't necessarily have a profound causal effect on the weight of a fox. 
+
+## 6H4
+
+```{r}
+adjustmentSets(fox_dag, exposure = "Avgfood", outcome = "Weight")
+```
+
+```{r}
+gf_point(weightSTZD ~ avgfoodSTZD, data = foxes)
+```
+
+
+```{r results = FALSE}
+m6h4 <-
+  ulam(
+    data = foxes,
+    alist(
+      weightSTZD ~ dnorm(mu, sigma),
+      mu <- b0 + b_f * avgfoodSTZD,
+      b0 ~ dnorm(0, 0.2),
+      b_f ~ dnorm(0, 0.4),
+      sigma ~ dexp(1)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 6)
+```
+
+```{r}
+stanfit(m6h4) %>%
+  mcmc_areas(pars = vars(-lp__))
+```
+
+An increase in avgfood doesn't really effect the weight of a fox, given the model and the dag. There is also no adjusting on any other covariates, because we would be blocking the path from avgfood -> groupsize -> weight otherwise.  
+
+## 6H5
+
+```{r}
+adjustmentSets(fox_dag, exposure = "Groupsize", outcome = "Weight")
+```
+
+We will adjust the model and add avgfood.
+
+```{r results = FALSE}
+m6h5 <-
+  ulam(
+    data = foxes,
+    alist(
+      weightSTZD ~ dnorm(mu, sigma),
+      mu <- b0 + b_f * avgfoodSTZD + b_g * groupsizeSTZD,
+      b0 ~ dnorm(0, 0.2),
+      c(b_f, b_g) ~ dnorm(0, 0.4),
+      sigma ~ dexp(1)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 6)
+```
+
+```{r}
+stanfit(m6h5) %>%
+  mcmc_areas(pars = vars(-lp__))
+```
+
+From this model, the slope for group size is negative, which seems to indicate that larger group sizes decreases weight, based on the dag. Adding both predictors though makes the slope for the average food positive, which was more flat in the last model. Once we know what the group size is, the average food has a positive causal effect on weight. To explain the whole dag, when we don't know the group size, average food has little impact on weight, as there is a positive effect from average food on weight but a negative effect from group size on weight. This forces the slope of b_f to be 0. Area also does not have a causal influence on weight given its slope centered near 0. 

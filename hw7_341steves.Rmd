@@ -1,0 +1,303 @@
+---
+title: "Stat 341 -- PS 7"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(splines)
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 7.1
+
+```{r}
+data(cherry_blossoms)
+Cherry <- cherry_blossoms %>% drop_na(year, doy)
+
+knots <- quantile(Cherry$year, (1:15)/16)
+B <- bs(Cherry$year, degree = 3, knots = knots, intercept = TRUE)
+m4.7 <- quap(
+  data = list(doy = Cherry$doy, B = B),
+  alist(
+    doy ~ dnorm(mu, sigma),
+    mu <-   a + B %*% w,
+    a <- dnorm(100, 10),
+    w ~ dnorm(0, 10),
+    sigma ~ dexp(1)
+  ),
+  start = list(w = rep(0, ncol(B)))  # this tells quap how many w's there are
+)
+```
+
+### a)
+
+There are a lot of n/a values for the value "doy" so drop_na removes them. There are about 400-ish values dropped because of this.
+
+### b)
+
+The quantile function makes sure that all of the sections of the spline have an equal number of data values. It creates 15 quantiles of the data for the variable "year."
+
+### c)
+
+There is one row for each year in the dataset, one column for each knot of the basis function. 
+
+### d)
+
+For the value of mu, it takes the intercept "a" and adds it to the product of the matrix values of B with w. W is a vector of weights and B is the corresponding row for a given year in the matrix B. 
+
+## 7.2
+
+### a)
+
+```{r, out.height = '50%', out.width= '75%', fig.align= "center"}
+knitr::include_graphics('q1_hw7.png')
+```
+
+
+### b)
+
+```{r}
+knots <- quantile(Cherry$year, (1:15)/16)
+B <- bs(Cherry$year, degree = 3, knots = knots, intercept = TRUE)
+m4.7 <- quap(
+  data = list(doy = Cherry$doy, B = B),
+  alist(
+    doy ~ dnorm(mu, sigma),
+    mu <- B %*% w,
+    #a <- dnorm(100, 10),
+    w ~ dnorm(0, 10),
+    sigma ~ dexp(1)
+  ),
+  start = list(w = rep(0, ncol(B)))  # this tells quap how many w's there are
+)
+```
+
+In removing $a$ completely, the model fails to converge because it still has a prior at 0, which is not close to where the data actually is. 
+
+### c)
+
+```{r}
+knots <- quantile(Cherry$year, (1:15)/16)
+B <- bs(Cherry$year, degree = 3, knots = knots, intercept = TRUE)
+m4.7a <- quap(
+  data = list(doy = Cherry$doy, B = B),
+  alist(
+    doy ~ dnorm(mu, sigma),
+    mu <- B %*% w,
+    w ~ dnorm(120, 10),
+    sigma ~ dexp(1)
+  ),
+  start = list(w = rep(120, ncol(B)))  # this tells quap how many w's there are
+)
+```
+
+### d)
+
+```{r fig.width = 7, fig.height = 4}
+#link and sim for 4.7
+Link4.7 <- link(m4.7)
+Avg4.7 <-
+  apply(Link4.7, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(Cherry)
+
+Sim4.7 <- sim(m4.7)
+Ind4.7 <-
+  apply(Sim4.7, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(Cherry)
+
+#link and sim for 4.7a
+Link4.7a <- link(m4.7a)
+Avg4.7a <-
+  apply(Link4.7a, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(Cherry)
+
+Sim4.7a <- sim(m4.7a)
+Ind4.7a <-
+  apply(Sim4.7a, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(Cherry)
+```
+
+
+```{r fig.width = 8, fig.height = 8}
+gf_point(doy ~ year, data = Cherry) %>%
+  gf_ribbon(ymax + ymin ~ year, data = Avg4.7a, fill = ~ "avg") %>%
+    gf_ribbon(ymax + ymin ~ year, data = Ind4.7a, fill = ~ "ind") %>%
+  gf_labs(title = "m4.7") /
+  gf_point(doy ~ year, data = Cherry) %>%
+  gf_ribbon(ymax + ymin ~ year, data = Avg4.7, fill = ~ "avg") %>%
+    gf_ribbon(ymax + ymin ~ year, data = Ind4.7, fill = ~ "ind") %>%
+  gf_labs(title = "m4.7a") 
+```
+
+Both m4.7 (the model with $a$ added in regularly) and m4.7a (the model without $a$) look similar graphically. The trends of the average and individual average for day of year ~ year are near the same in both models. There still remains a decent amount of points outside of the 95% CI, though, on both graphs. It may also be plausible to say because there is more data in more recent years that the model is better at predicting days of the year when the cherry blossoms bloomed (from about the 1850's until the present). 
+
+```{r}
+precis(m4.7)
+precis(m4.7a)
+```
+
+Looking at the summary statistics, sigma is the same in both m4.7 and 4.7a. Model 4.7a does not produce a value $a$ because it is added to $w$ here. Looking at the graphs, though, its plausible to assume the means of the two models are also basically the same.  
+
+## 7.3
+
+### a)
+
+```{r fig.width = 7, fig.height = 4}
+Cherry2 <-
+  cherry_blossoms %>% 
+  drop_na(doy, temp)
+
+
+gf_point(doy ~ temp, data = Cherry2)
+```
+
+```{r}
+knots <- quantile(Cherry2$temp, (1:15)/16)
+B <- bs(Cherry2$temp, degree = 3, knots = knots, intercept = TRUE)
+m7.3 <- quap(
+  data = list(doy = Cherry2$doy, B = B),
+  alist(
+    doy ~ dnorm(mu, sigma),
+    mu <-  a + B %*% w,
+    a <- dnorm(100, 10),
+    w ~ dnorm(0, 10),
+    sigma ~ dexp(1)
+  ),
+  start = list(w = rep(0, ncol(B)))  # this tells quap how many w's there are
+)
+```
+
+### b)
+
+```{r fig.width = 7, fig.height = 4}
+Link7.3 <- link(m7.3)
+Avg7.3 <-
+  apply(Link7.3, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(Cherry2)
+
+Sim7.3 <- sim(m7.3)
+Ind7.3 <-
+  apply(Sim7.3, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(Cherry2)
+```
+
+
+```{r fig.width = 8, fig.height = 8}
+gf_point(doy ~ year, data = Cherry) %>%
+  gf_ribbon(ymax + ymin ~ year, data = Avg4.7a, fill = ~ "avg") %>%
+    gf_ribbon(ymax + ymin ~ year, data = Ind4.7a, fill = ~ "ind") %>%
+  gf_labs(title = "m4.7") /
+  
+  gf_point(doy ~ temp, data = Cherry2) %>%
+  gf_ribbon(ymax + ymin ~ temp, data = Avg7.3, fill = ~ "avg") %>%
+    gf_ribbon(ymax + ymin ~ temp, data = Ind7.3, fill = ~ "ind") %>%
+  gf_labs(title = "m7.3") 
+```
+
+m4.7 = day of year ~ year
+
+m7.3 = day of year ~ temp
+
+Both models are spline models, and both at least predict the majority of actual values on the graph. There are about an even number of points (30-ish in both) in both models that are out of the hdi. Model 4.7 has a wavier slope while model 7.3 has more of a linear decreasing trend: as temperature goes up, the day of the year of blossom goes down. I said in the last problem that in model 4.7, there were a lot of missing values in earlier years that may have caused the model to be worse at predicting doy for those years. This is sort of the opposite in 7.3 - the model predicts temperature better with less values, but this may be more in part because the trend is more linear when temperature goes up. 
+
+Model 4.7 is probably slightly better at predicting values, only using the number of points outside of the HDI as a form of judgement. There are basically an equal number of data points outside the HDI in both, but 4.7 also has 40 more observations, so there is a slightly higher percentage of values being guessed correctly by the model. It can also be argued that 7.3 would be better if it took on a quadratic shape. 
+
+## 7.4
+
+```{r}
+knots <- quantile(Cherry$year, (1:5)/6)
+B <- bs(Cherry$year, degree = 3, knots = knots, intercept = TRUE)
+m7.4 <- quap(
+  data = list(doy = Cherry$doy, B = B),
+  alist(
+    doy ~ dnorm(mu, sigma),
+    mu <-  a + B %*% w,
+    a <- dnorm(100, 10),
+    w ~ dnorm(0, 10),
+    sigma ~ dexp(1)
+  ),
+  start = list(w = rep(0, ncol(B)))  # this tells quap how many w's there are
+)
+```
+
+```{r}
+Link7.4 <- link(m7.4)
+Avg7.4 <-
+  apply(Link7.4, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(Cherry)
+
+Sim7.4 <- sim(m7.4)
+Ind7.4 <-
+  apply(Sim7.4, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(Cherry)
+```
+
+```{r fig.width = 8, fig.height = 8}
+gf_point(doy ~ year, data = Cherry) %>%
+  gf_ribbon(ymax + ymin ~ year, data = Avg4.7a, fill = ~ "avg - 4.7") %>%
+    gf_ribbon(ymax + ymin ~ year, data = Ind4.7a, fill = ~ "ind - 4.7") %>%
+  gf_labs(title = "m4.7") /
+  
+  gf_point(doy ~ year, data = Cherry) %>%
+    gf_ribbon(ymax + ymin ~ year, data = Avg7.4, fill = ~ "avg - 7.4") %>%
+    gf_ribbon(ymax + ymin ~ year, data = Ind7.4, fill = ~ "ind - 7.4") %>%
+  gf_labs(title = "m7.4")
+
+```
+
+There are less knots in model 7.4, so overall the slope is less wavy. Model 7.4 is more precise, as there is less room for error as it is shifting itself to the data more. The greater the number of knots, the more it fits to the pattern of the data.  

@@ -1,0 +1,346 @@
+---
+title: "Stat 341 -- PS 8"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 7.5
+
+### a)
+
+```{r fig.width = 7, fig.height = 4}
+SAT_original <- SAT
+
+gf_point(sat~expend, data = SAT_original) 
+sd(SAT$sat)
+```
+
+```{r fig.width=8, fig.height=4}
+#standardize
+SAT <- SAT_original %>%
+  mutate(
+    satSTZD = standardize(sat),
+    expendSTZD = standardize(expend))
+
+
+gf_point(satSTZD ~ expendSTZD, data = SAT)
+
+#Prior sampling
+m7.5 <- 
+  quap(
+    data = SAT,
+    alist(
+      satSTZD ~ dnorm(mu, sigma),
+      mu    <- beta_0 + beta_1 * (expendSTZD),
+      beta_0 ~ dnorm(0, 0.2),
+      beta_1 ~ dnorm(0, 0.3),
+      sigma  ~ dexp(2)
+    )
+  )
+
+PriorSamples <- m7.5 %>% extract.prior(n = 200) %>% as.data.frame()
+
+gf_abline(slope = ~ beta_1, intercept = ~beta_0, 
+            data = PriorSamples, alpha = 0.2) %>%
+  gf_lims(x = c(-3, 3), y = c(-3, 3)) %>%
+  gf_abline(slope = ~ c(-1, 1), intercept = ~c(0,0), 
+            data = NA,
+            inherit = FALSE,
+            color = "red", linetype = "dotted")
+```
+
+$\beta_0$ - chose $Normal(0, 0.2)$ because the average x is centered at 0 and we dont want to stray too far from that since the values are standardized, so a standard deviation of 0.2 makes that work. 
+
+$\beta_1$ - chose $Normal(0, 0.3)$ with standardization, the slope can be between -1 and 1 (positive or negative). An sd of 0.3 is chosen because it guarantees that a large % of possible slopes are between -1 and 1. Anything higher would make slopes larger than 1 which is bad for standardized values. 
+
+$\sigma$ - chose $Exponential(2)$ ensures that the SD is positive and also not incredibly large because the data is standardized. 
+
+### b)
+
+```{r}
+m7.5 <- 
+  quap(
+    data = SAT,
+    alist(
+      satSTZD ~ dnorm(mu, sigma),
+      mu    <- beta_0 + beta_1 * (expendSTZD),
+      beta_0 ~ dnorm(0, 0.2),
+      beta_1 ~ dnorm(0, 0.3),
+      sigma  ~ dexp(2)
+    )
+  )
+```
+
+```{r}
+set.seed(34)
+SATPost <- m7.5 %>% extract.samples(n = 1e4) 
+mean_hdi(SATPost$beta_1) %>%
+  mutate(ymin = ymin*sd(SAT$sat) / sd(SAT$expend),
+         ymax = ymax*sd(SAT$sat) / sd(SAT$expend),
+         y = y*sd(SAT$sat) / sd(SAT$expend))
+```
+
+The slope is always negative according to the 95% HDI of the model. The predicted slope is at -17.6, with the HDI from (-30.5, -5.4). This would mean that the model is 95% confident that an increased amount of education expenditures decreases the SAT score from a range of slopes of -30.5 to -5.4. 
+
+### c)
+
+```{r}
+unstandardize <- 
+  function (
+    x,  ref = x, 
+    scale = attr(ref, "scaled:scale"), 
+    center = attr(ref, "scaled:center")
+  ) 
+  {
+    res <- x * scale + center
+    as.numeric(res)
+  }
+
+Link7.5 <- link(m7.5)
+Avg7.5 <- apply(Link7.5, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(SAT)
+
+Sim7.5 <- sim(m7.5)
+Ind7.5 <- apply(Sim7.5, 2, mean_hdi) %>%
+  bind_rows() %>%
+  bind_cols(SAT)
+```
+
+```{r fig.width = 8,  fig.height = 5}
+gf_point(sat ~ expend, data = SAT) %>%
+  gf_ribbon(unstandardize(ymin, satSTZD) + unstandardize(ymax, satSTZD) ~ expend, 
+            data = Avg7.5, inherit = FALSE, fill = ~'avg') %>%
+  gf_ribbon(unstandardize(ymin, satSTZD) + unstandardize(ymax, satSTZD) ~ expend, 
+            data = Ind7.5, inherit = FALSE, fill = ~'ind')
+```
+
+### d)
+
+The average-average of this dataset is the HDI of the mean SAT score for any given value of x (expenditures). The individual-average of this dataset is the HDI of possible SAT scores in the dataset given a value of x. 
+
+## 8.1
+
+### a)
+
+```{r fig.height=4, fig.width=7}
+SAT <- SAT %>%
+    mutate(fracSTZD = standardize(frac))
+
+gf_point(satSTZD ~ fracSTZD, data = SAT) %>%
+  gf_point(satSTZD ~ expendSTZD, color = "red")
+```
+
+```{r}
+m8.1 <- 
+  quap(
+    data = SAT,
+    alist(
+      satSTZD ~ dnorm(mu, sigma),
+      mu    <- beta_0 + beta_e * (expendSTZD) + beta_f * (fracSTZD),
+      beta_0 ~ dnorm(0, 0.2),
+      beta_e ~ dnorm(0, 0.3),
+      beta_f ~ dnorm(0, 0.3),
+      sigma  ~ dexp(1)
+    )
+  )
+```
+
+### b)
+
+HDI for beta_0:
+
+```{r}
+set.seed(34)
+SATPost2 <- m8.1 %>% extract.samples(n = 1e4) 
+
+mean_hdi(SATPost2$beta_0) %>% 
+  select(y, ymin, ymax) %>%
+  mutate(param = "beta_0") %>%
+  pivot_longer(!param, names_to = "val", values_to = "beta0") %>%
+  mutate(beta0 = mean(SAT$sat) + beta0 * sd(SAT$sat))
+```
+
+HDI for beta_e: 
+
+```{r}
+mean_hdi(SATPost2) %>%
+  select(beta_e:beta_e.upper) %>%
+  mutate(param = "beta_e") %>%
+  pivot_longer(!param, names_to = "val", values_to = "beta_e") %>%
+  mutate(beta_e = beta_e*sd(SAT$sat) / sd(SAT$expend))
+```
+
+HDI for beta_f: 
+
+```{r}
+mean_hdi(SATPost2) %>%
+  select(beta_f:beta_f.upper) %>%
+  mutate(param = "beta_f") %>%
+  pivot_longer(!param, names_to = "val", values_to = "beta_f") %>%
+  mutate(beta_f = beta_f*sd(SAT$sat) / sd(SAT$frac))
+```
+
+HDI for sigma:
+
+```{r}
+mean_hdi(SATPost2) %>%
+  select(sigma:sigma.upper) %>%
+  mutate(param = "sigma") %>%
+  pivot_longer(!param, names_to = "val", values_to = "sigma") %>%
+  mutate(sigma = sigma*sd(SAT$sat))
+```
+
+Sorry if tables are slightly messy, had to make a value to pivot from. "Val" column gives the value for each parameter and then the upper and lower values are the upper and lower bounds from the HDI. 
+
+### c)
+
+```{r fig.width = 8, fig.height = 4}
+plot(coeftab(m7.5, m8.1))
+```
+
+Both models have the same center of 0 for the intercept beta_0, but m8.1 is more precise and has a smaller HDI. Beta_1 and beta_e mean the same thing (the change in sat score depending on expenditures), but as shown here, and also in the HDI analysis in part b, the two slopes are completely different - in m7.5 the slope was predicted to be negative but in m8.1 the slope is positive. I'm guessing the slope is positive in m8.1 because there is some sort of positive correlation between the expenditures in a state and the fraction of students who took the SAT, and that is impacting the slope for beta_e. Also, both predictors have negative slopes with SAT score. Similar to beta 0, sigma has a tighter HDI bound in m8.1, but is smaller compared to m7.5. 
+
+### d)
+
+The HDI for beta_f was (-3.03, -2.25). The model seems to think that as a higher number of students taking the test increases, the scores of SAT tests decrease. There is also a seemingly positive relationship between the fraction of students in a state who take the test and the expenditures of a state. The model predicts a negative relationship between sat scores and expenditures, but this relationship is changed when the fraction variable is added. 
+
+### e)
+
+```{r}
+Link8.1 <- link(m8.1)
+Post8.1 <-
+  Link8.1 %>% apply(2, mean_hdi) %>% 
+  bind_rows() %>%
+  bind_cols(SAT) %>%
+  mutate(resid = satSTZD - y) 
+
+Michiganresid <- Post8.1 %>%
+  filter(state == "Michigan")
+
+Michiganresid$resid
+
+#gf_point(resid ~ satSTZD, data = Post8.1)
+```
+
+### f)
+
+```{r}
+underfittedVals <- Post8.1 %>%
+  select(resid, state) %>%
+  arrange(desc(resid))
+
+head(underfittedVals)
+```
+
+North Dakota, New Hampshire and Iowa had pretty high residuals, meaning that the model underpredicted these states' SAT scores. 
+
+```{r}
+overfittedVals <- Post8.1 %>%
+  select(resid, state) %>%
+  arrange(resid)
+
+head(overfittedVals)
+```
+
+The model overpredicts West Virginia the most along with Nevada and South Carolina. 
+
+## 5E4
+
+Models 1 and 3 are inferentially equivalent, as model only contains slopes and models 4 and 5 only contain intercepts. 
+
+## 5H1
+
+The D depends on A, which depends on M, but M and D are independent of each other. 
+
+```{r}
+data(WaffleDivorce) 
+Waffles <-
+  WaffleDivorce %>%
+  mutate(
+   #WaffleHousesPerCap = WaffleHouses / Population,
+    D = standardize(Divorce),
+    #W = standardize(WaffleHousesPerCap),
+    A = standardize(MedianAgeMarriage),
+    M = standardize(Marriage)
+  )
+
+m5h1a <- quap(
+  data = Waffles,
+  alist(
+    D ~ dnorm(mu, sigma),
+    mu <- b_0 + b_A * A,
+    b_0 ~ dnorm(0, 0.2),
+    b_A ~ dnorm(0, 0.5),
+    sigma ~  dexp(1)
+  )
+)
+
+m5h1b <- quap(
+  data = Waffles,
+  alist(
+    D ~ dnorm(mu, sigma),
+    mu <- b_0 + b_A * A + b_M * M,
+    b_0 ~ dnorm(0, 0.2),
+    b_A ~ dnorm(0, 0.5),
+    b_M ~ dnorm(0, 0.5),
+    sigma ~  dexp(1)
+  )
+)
+```
+
+```{r fig.width = 7, fig.height = 4}
+plot(coeftab(m5h1a, m5h1b))
+```
+
+Adding M to the model doesn't change a whole lot in b_0 and sigma. It shifts the slope of A down just a little and increases the HDI bounds as well. This isn't very significant, however, so it probably doesn't quite fit the M -> A -> D  DAG, as M doesn't provide any additional effect in the model compared to A by itself. 

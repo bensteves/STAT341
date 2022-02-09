@@ -1,0 +1,313 @@
+---
+title: "Stat 341 -- HW 3"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+library(NHANES)
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(triangle)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+## 4.1
+
+Regular Probability:
+
+
+```{r, out.height = '50%', out.width= '75%', fig.align= "center"}
+knitr::include_graphics('q1_hw3.png')
+```
+
+answer: 0.22
+
+Grid Method: 
+
+```{r}
+prior <- c(0.3, 0.7)
+likelihood <- c(0.32, 0.48)
+posterior <- prior*likelihood
+posterior_updated <- posterior/sum(posterior)
+posterior_updated[1]
+```
+
+answer: 0.22
+
+## 4.2
+
+a)
+
+```{r fig.width = 7, fig.height = 4}
+gf_dist("exp", rate = 1, color = ~ "rate = 1") %>%
+  gf_dist("exp", rate = 2, color = ~ "rate = 2") %>%
+  gf_dist("exp", rate = 1/2, color = ~ "rate = 1/2")
+```
+
+b)
+
+```{r}
+x <- c(4.22, 2.88, 6.65, 0.16, 0.28, 1.58, 1.57, 0.73, 13.63, 0.15, 5.02, 
+       2.4, 1.41, 1.89, 0.94, 4.25, 7.82, 2.39, 2.95, 20.21)
+ExpGrid <-
+  expand_grid(
+    rate = seq(0, 2, length.out = 1001)
+  ) %>%
+  mutate(
+    logprior = log(dtriangle(rate, 0, 3, 1)),
+    loglikelihood = map_dbl(rate, ~ sum(dexp(x, rate = .x, log = TRUE))),
+    logposterior = logprior + loglikelihood,
+    posterior = exp(logposterior)
+  )
+```
+
+c)
+
+```{r fig.width = 7, fig.height = 4}
+gf_line( posterior ~ rate, data = ExpGrid, color = ~ "posterior")
+```
+
+The highest probabilities appear to be between about 0.25-0.3
+
+d)
+
+```{r fig.width = 7, fig.height = 4}
+gf_dist("exp", rate = 0.05, color = ~ "rate = 0.05") %>%
+  gf_dist("exp", rate = 0.25, color = ~ "rate = 0.25") %>%
+  gf_dist("exp", rate = 0.8, color = ~ "rate = 1") %>%
+  gf_dhistogram(~ rate, data = ExpGrid, bins = 10, color = "grey") %>%
+  gf_lims(x = c(0, 10))
+```
+
+## 4.3
+
+```{r}
+Men   <- NHANES %>% filter(Gender == "male", Age == 21)
+Women <- NHANES %>% filter(Gender == "female", Age == 21)
+```
+
+```{r}
+Height_Grid <- 
+  expand_grid(
+    mu      = seq(150, 200, length.out = 501),
+    sigma   = seq(0, 20, length.out = 501)    
+  ) %>%
+  filter(sigma != 0) %>%   # remove if sigma == 0
+  mutate(
+    prior = 
+      dunif(mu, 150, 200, log = FALSE) +
+      dunif(sigma, 0, 20, log = FALSE),
+    logprior = 
+      dunif(mu, 150, 200, log = TRUE) +
+      dunif(sigma, 0, 20, log = TRUE),
+    loglik = 
+      map2_dbl(mu, sigma, 
+               ~ sum(dnorm(Men$Height, mean = .x, sd = .y, log= TRUE))
+    ),      # use .x for mu and .y for sigma
+    logpost = logprior + loglik,
+    posterior = exp(logpost)
+  )
+```
+
+```{r fig.width = 7, fig.height = 4}
+gf_tile(posterior ~ mu + sigma, data = Height_Grid) %>%
+  gf_contour(posterior ~ mu+ sigma, data = Height_Grid, color = "yellow") %>%
+  gf_lims(x = c(169, 181), y = c(6, 11))
+```
+
+a) 
+
+Credible values for mu are between about 174-178. Credible values for sigma are between about 6.5-9.5. The true center of this contour plot are about (176, 7.75)
+
+b) 
+
+```{r fig.width = 7, fig.height = 4}
+hPosteriorSamples <- 
+  Height_Grid %>%
+  slice_sample(n = 10000, weight_by = posterior, replace = TRUE)
+
+hPosteriorSamples %>%
+  gf_density2d(sigma ~ mu)
+```
+
+c) 
+
+```{r}
+HPDI(hPosteriorSamples$mu, prob = 0.95)
+```
+
+```{r}
+HPDI(hPosteriorSamples$sigma, prob = 0.95)
+```
+
+
+d) 
+
+```{r fig.width = 7, fig.height = 4}
+plot_post(hPosteriorSamples$mu, hdi_prob = 0.95)
+```
+
+
+## 4.5
+
+```{r}
+Normal_Height_Grid <- 
+  expand_grid(
+    mu      = seq(150, 200, length.out = 501),
+    sigma   = seq(0, 20, length.out = 501)    
+  ) %>%
+  filter(sigma != 0) %>%   # remove if sigma == 0
+  mutate(
+    prior = 
+      dnorm(mu, 175, 56 , log = FALSE) +
+      dnorm(sigma, 8, 63, log = FALSE),
+    logprior = 
+      # used CI bounds from last part to find sd's
+      dnorm(mu, 175, 56 , log = TRUE) +
+      dnorm(sigma, 8, 63, log = TRUE),
+    loglik = 
+      map2_dbl(mu, sigma, 
+               ~ sum(dnorm(Men$Height, mean = .x, sd = .y, log= TRUE))
+    ),      # use .x for mu and .y for sigma
+    logpost = logprior + loglik,
+    posterior = exp(logpost)
+  )
+```
+
+```{r fig.width = 7, fig.height = 4}
+gf_tile(posterior ~ mu + sigma, data = Normal_Height_Grid) %>%
+  gf_contour(posterior ~ mu+ sigma, data = Normal_Height_Grid, color = "yellow") %>%
+  gf_lims(x = c(169, 181), y = c(6, 11))
+```
+
+a) 
+
+Credible values for mu are between about 174-178. Credible values for sigma are between about 6.5-9.5. Very similar to uniform distribution
+
+b)
+
+```{r fig.width = 7, fig.height = 4}
+hPosteriorSamplesNormal <- 
+  Normal_Height_Grid %>%
+  slice_sample(n = 10000, weight_by = posterior, replace = TRUE)
+
+hPosteriorSamplesNormal %>%
+  gf_density2d(sigma ~ mu)
+```
+
+c) 
+
+```{r}
+HPDI(hPosteriorSamplesNormal$mu, prob = 0.95)
+```
+
+d)
+
+```{r fig.width = 7, fig.height = 4}
+plot_post(hPosteriorSamplesNormal$mu, hdi_prob = 0.95)
+```
+
+## 4.8
+
+```{r}
+set.seed(34)
+qmodelHeight <-
+  quap(
+    data = Men,
+    alist(
+      Height ~ dnorm(mu, sigma),
+      mu     ~ dnorm(175, 56),
+      sigma  ~ dnorm(8, 63))
+    )
+```
+
+
+a)
+
+Credible values for mu are between about 174-177. Credible values for sigma are between about 6.5-9. Center is at about (176, 8)
+
+b)
+
+```{r}
+qmodelHeightSamples <- qmodelHeight %>% extract.samples(n = 10000) 
+head(qmodelHeightSamples)
+```
+
+```{r fig.width = 7, fig.height = 4}
+gf_point(sigma ~ mu, data = qmodelHeightSamples, alpha = 0.2) %>%
+  gf_density2d(color = "skyblue")
+```
+
+
+c)
+
+```{r}
+HPDI(qmodelHeightSamples$mu, prob = 0.95)
+```
+
+d) 
+
+```{r fig.width = 7, fig.height = 4}
+plot_post(qmodelHeightSamples$mu, hdi_prob = 0.95)
+```
+
+
+```{r fig.width = 7, fig.height = 4}
+gf_density(~mu, data = qmodelHeightSamples, fill = ~ "quadratic approximation") %>%
+  gf_density(~mu, data = hPosteriorSamplesNormal, fill = ~ "grid approximation")
+```
+
+Posterior probability is about the same for both grid approximation and quadratic approximation. Both have means at about 176 with peaks at 0.45.
+
+
+```{r fig.width = 7, fig.height = 4}
+gf_density(~sigma, data = qmodelHeightSamples, fill = ~ "quadratic approximation") %>%
+  gf_density(~sigma, data = hPosteriorSamplesNormal, fill = ~ "grid approximation")
+```
+
+The posterior probability for sigma is pretty similar in both methods, with the bounds being slightly higher for grid approximation. Both have a standard deviation of about 8 and a peak at a probability of about 0.6. 

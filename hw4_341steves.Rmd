@@ -1,0 +1,390 @@
+---
+title: "Stat 341 -- hw4"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+## 5.1 
+
+Only got to the first derivative, was unsure what to do next. 
+
+```{r, out.height = '50%', out.width= '75%', fig.align= "center"}
+knitr::include_graphics('q1_hw4.png')
+```
+
+## 5.3
+
+### a)
+
+Prior: $Beta(10,10)$
+
+Data: $x = 26, N = 74$
+
+Posterior = $Beta(x + a, N - x + b)$
+
+```{r}
+a <- 10
+b <- 10
+N <- 74
+x <- 26
+beta(x+a, N-x+b)
+```
+
+
+### b) 
+
+Mean : $\alpha/(\alpha+\beta)$
+
+```{r}
+a/(a+b)
+```
+
+### c)
+
+Mode : $\alpha - 1/\alpha+\beta - 2$ for $\alpha, \beta > 1$
+
+```{r}
+(a-1)/(a+b-2)
+```
+
+### d)
+
+```{r}
+qbeta(c(0.025, 0.975), shape1 = 10, shape2 = 10)
+```
+
+### e)
+
+Same as d
+
+```{r}
+qbeta(c(0.025, 0.975), shape1 = 10, shape2 = 10)
+```
+
+### f) 
+
+Because the range of the interval of a beta distribution is (0,1), and the distribution (10,10) is symmetrical, there is an equal percentage of both sides that wouldn't be included in the HDI. In this case, about 0.288 units of x is cut off from each end of the interval to give the HDI. 
+
+
+## 5.4 
+
+### a)
+
+```{r}
+qbeta(c(0.025, 0.975), shape1 = 10, shape2 = 10)
+```
+
+
+### b)
+
+```{r fig.width=7, fig.height = 4}
+xqbeta(c(0.025, 0.975), shape1 = 10, shape2 = 10)
+```
+
+### c)
+
+```{r fig.width=7, fig.height = 4}
+xqbeta(c(0+0.025, 1-0.025), shape1 = 5, shape2 = 15)
+```
+
+This is not the HDI as there is skew in the curve. 
+
+### d)
+
+```{r fig.width=7, fig.height = 4}
+xqbeta(c(0+0.015, 1-0.035), shape1 = 5, shape2 = 15)
+
+# old interval range
+.45565- .09147
+
+# new interval range
+.43846 - .08039
+```
+
+I changed the bounds from (0.025, 0.975) to (0.015, 0.965). The HDI shrunk slightly when changed from the old interval, so it is narrower.
+
+### e)
+
+Round 1 - (0.015, 0.965)
+
+```{r}
+dbeta(c(0.08039112, 0.43845616), 5, 15)
+```
+
+Round 2 - (0.0125, 0.9875)
+
+
+```{r}
+qbeta(c(0.0125, 0.9625), shape1 = 5, shape2 = 15)
+```
+
+```{r}
+dbeta(c(0.07685085, 0.43480967), 5, 15)
+```
+
+
+Round 3 - (0.013, 0.963)
+
+```{r}
+qbeta(c(0.013, 0.963), shape1 = 5, shape2 = 15)
+```
+
+```{r}
+dbeta(c(0.07759583, 0.43552249), 5, 15)
+```
+
+
+Round 4 - (0.0135, 0.9635)
+
+```{r}
+qbeta(c(0.0135, 0.9635), shape1 = 5, shape2 = 15)
+```
+
+```{r}
+dbeta(c(0.07832115, 0.43624334), 5, 15)
+```
+
+Both sides of the interval will have the same height at some value P between 0.013 and 0.0135
+
+### f)
+
+```{r}
+f <- function(p) {
+  p2 <- 0.05 - p
+  q  <- qbeta(p,  5, 15)
+  q2 <- qbeta(1 - p2, 5, 15)
+  # print(tibble(p, p2, q, q2))
+  dbeta(q, 5, 15) - dbeta(q2, 5, 15)
+}
+```
+
+i - p2 helps us get the other end of the interval. It does the same thing as if you were to add 0.95 to p. In this instance though, it is gotten by subtracting it from 0.05, and then subtracted by 1. In essence if p is the area of the curve that is outside of 95% HDI on the left tail, then p2 is the same thing but on the right tail. 
+
+ii - q is the x value of the bound of the HDI on the left. Q2 is the x value of the bound on the right. 
+
+iii - the area of the right tail is equal to p2, but to put it into qbeta we subtract it by 1 to signify that this value is on the right side of the curve, which is more specifically, a value of x > 0.5. 
+
+iv - 
+
+```{r}
+f(0.015)
+f(0.0125)
+f(0.013)
+f(0.0135)
+```
+
+If a guess is over 0, it means the next guess should be smaller. If it is below 0, the guess should be larger. 
+
+
+### g) 
+
+```{r}
+uniroot(f, c(0, 0.05))
+```
+
+```{r}
+qbeta(c(0.013346, 0.963346), shape1 = 5, shape2 = 15)
+```
+
+```{r fig.width=7, fig.height = 4}
+xpbeta(c( 0.07809977, 0.43602045), 5, 15)
+```
+
+
+## 5.5
+
+### a)
+
+```{r}
+hdi_beta <- function(shape1, shape2, prob = 0.95) {
+
+  f <- function(p) {
+    p2 <- (1- prob) - p
+    q  <- qbeta(p,  shape1, shape2)
+    q2 <- qbeta(1 - p2, shape1, shape2)
+    # print(tibble(p, p2, q, q2))
+    dbeta(q, shape1, shape2) - dbeta(q2, shape1, shape2)
+  }
+
+  lo <- uniroot(f, c(0, 1-prob))$root
+  hi <- lo + prob
+  qbeta(c(lo, hi), shape1, shape2)
+}
+```
+
+### b)
+
+```{r fig.width=7, fig.height = 4}
+# show quantile
+hdi_beta_quantiles1 <- hdi_beta(5, 15, 0.95)
+
+# add values to tibble, for easier comparisons later
+quantile1_tibble <- tibble(hdi_beta_quantiles1)
+quantile1_tibble
+
+# show p (as in the area outside the HDI)
+xpbeta(hdi_beta_quantiles1, 5, 15)
+
+# confirm numbers generated by hdi_beta produce same result.
+quantile1_tibble %>%
+  mutate( check_quantiles = qbeta(c(0.013346, 0.963346), 5, 15))
+```
+
+Looking at the tibble above, the values that hdi_beta produces are the same as what qbeta produce. 
+
+```{r fig.width=7, fig.height = 4}
+# show quantile
+hdi_beta_quantiles2 <- hdi_beta(9.6, 3.1, 0.91)
+
+# add values to tibble, for easier comparisons later
+quantile2_tibble <- tibble(hdi_beta_quantiles2)
+quantile2_tibble
+
+# show p (as in the area outside the HDI)
+xpbeta(hdi_beta_quantiles2, 9.6, 3.1)
+
+# confirm numbers generated by hdi_beta produce same result.
+quantile2_tibble %>%
+  mutate( check_quantiles = qbeta(c(0.07165891, 0.98165891), 9.6, 3.1))
+```
+
+This test uses a 91% HDI instead. The results in the tibble show hdi_beta produced the same quantiles as qbeta.
+
+### c) 
+
+```{r}
+hdi_beta(5, 15, 0.95)
+hdi_beta(40, 60, 0.90)
+hdi_beta(60, 40, 0.92)
+```
+
+
+## 5.6
+
+### a)
+
+Prior: $Beta(1,1)$
+
+Data: $x = 58, N = 100$
+
+Posterior = $Beta(x + a, N - x + b)$
+
+```{r}
+x <- 58
+N <- 100
+a <- b <- 1
+#posterior
+beta(x+a, N-x+b)
+#quantiles
+hdi_beta(x+a, N-x+b)
+```
+
+### b)
+
+A uniform distribution is not a great choice because a proportion of republican voters of 0% or 100% is just as likely as one that is more split in the middle, near 50%. In reality, 0% and 100% are incredibly unlikely, as most elections would have a republican vote percentage in the middle. 
+
+For the prior, I have chosen Beta(85, 85). I am assuming outcomes of the election are split in the middle at about 50%, so both alpha and beta should be equal. I chose 85 because it makes the curve tighter, and I played around with different values to create a range of about 40-60%, because I assumed the proportion of republican votes for an election had a range from about 40-60%. . 
+
+Prior: $Beta(85,85)$
+
+Data: $x = 58, N = 100$
+
+Posterior = $Beta(x + a, N - x + b)$
+
+```{r fig.width=7, fig.height = 4}
+x <- 58
+N <- 100
+a <- b <- 85
+#posterior
+beta(x+a, N-x+b)
+#quantiles
+electionQuantiles1 <- hdi_beta(x+a, N-x+b)
+
+#prior and posterior
+gf_dist("beta", shape1 = 85, shape2 = 85, color = ~ "Prior: Beta(85, 85)") %>%
+  gf_dist("beta", shape1 = x+a, shape2 = N-x+b, color = ~ "Posterior: Beta(143, 127)")
+```
+
+The HDI is `r electionQuantiles1`. The bounds of the new HDI with the new prior of Beta(143, 127) are tighter, and reflect a more plausible outcome of an election. 
+
+### c)
+
+Prior: Use old posterior, $Beta(143, 127)$ based on previous knowledge of elections
+
+Data: $x = 56, N = 100$
+
+Posterior = $Beta(x + a, N - x + b)$
+
+```{r fig.width=7, fig.height = 4}
+x <- 56
+N <- 100
+a <- 143
+b <- 127
+#posterior
+beta(x+a, N-x+b)
+#quantiles
+electionQuantiles2 <- hdi_beta(x+a, N-x+b)
+
+#prior and posterior
+gf_dist("beta", shape1 = 143, shape2 = 127, color = ~ "Prior: Beta(143, 127)") %>%
+  gf_dist("beta", shape1 = x+a, shape2 = N-x+b, color = ~ "Posterior: Beta(199, 171)")
+```
+
+The HDI is `r electionQuantiles2`. This accounts for all of the data encountered. 
+
+### d)
+
+```{r}
+xpbeta(0.5, 199, 171, lower.tail = FALSE)
+```
+
+About 92.7% of the posterior distribution has the republican winning the election. 
+

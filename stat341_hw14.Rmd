@@ -1,0 +1,282 @@
+---
+title: "Stat 341 -- PS 14"
+author: "Ben Steves"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, setup, include = FALSE, message=FALSE}
+# load packages that are going to be used
+library(mosaic)      # this loads ggformula (for plotting), etc. too
+library(fastR2)      # some data sets
+library(pander)      # nicely formatted tables with pander()
+library(knitr)       # so you can use kable()
+library(patchwork)   # for combining plots
+
+# part of tidyverse for data wrangling
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# several packages for bayesian stuff -- more to come later
+library(rethinking)  # related to text
+library(tidybayes)    
+library(bayesplot)
+library(CalvinBayes)
+
+
+# Some customization. You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw())     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  fig.width = 4,    # adjust this to make figures wider or narrower
+  fig.height = 2.5, # adjust this to make figures taller or shorrter
+  size = "small")   # slightly smaller font for code
+```
+
+
+<!-- A few math abbreviations -->
+
+\newcommand{\Prob}{\operatorname{Pr}}
+\newcommand{\Binom}{\operatorname{Binom}}
+\newcommand{\Unif}{\operatorname{Unif}}
+\newcommand{\Triangle}{\operatorname{Triangle}}
+\newcommand{\Norm}{\operatorname{Norm}}
+\newcommand{\Beta}{\operatorname{Beta}}
+\newcommand{\E}{\operatorname{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\SD}{\operatorname{SD}}
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+# 7e3
+
+```{r}
+p <- c(.2, .25, .25, .3)
+- sum(p * log2(p))
+```
+
+# 7m4
+
+The effective number of parameters goes down because the priors are more concentrated, which creates less flexibility. In WAIC the penalty function is basically how flexible the model is, so there is a smaller penalty for less flexible model.
+
+# 7m5
+
+Flat, uninformative priors create a posterior that "encodes as much of the training sample (likelihood) as possible." (214) Informative priors make it so that the model doesn't overfit and predict the entirety of the data when we don't want it to.
+
+# 7m6
+
+If a prior is too skeptical it could miss features of the data, causing underfitting. Again, more concentrated priors create less flexibility.
+
+# 7h1
+
+```{r}
+data(Laffer)
+gf_point(tax_revenue ~ tax_rate, data = Laffer)
+```
+
+```{r}
+Laffer <- Laffer %>%
+  mutate(tax_rateSTZD = standardize(tax_rate),
+         tax_revenueSTZD = standardize(tax_revenue))
+```
+
+```{r}
+gf_point(data = Laffer, tax_revenueSTZD ~ tax_rateSTZD)
+```
+
+```{r results = FALSE}
+set.seed(34)
+linear7h1 <- ulam(
+  data = Laffer,
+  alist(
+    tax_revenueSTZD ~ dnorm(mu, sigma),
+    mu <- a + b*tax_rateSTZD,
+    a ~ dnorm(0, 0.2),
+    b ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, iter = 4000, warmup = 1000, cores = 4,
+  refresh = 0, log_lik = TRUE
+)
+```
+
+```{r results = FALSE}
+set.seed(34)
+quadratic7h1 <- ulam(
+  data = Laffer,
+  alist(
+    tax_revenueSTZD ~ dnorm(mu, sigma),
+    mu <- a + b1*tax_rateSTZD + b2*tax_rateSTZD^2,
+    a ~ dnorm(0, 0.2),
+    b1 ~ dnorm(0, 0.5),
+    b2 ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, iter = 4000, warmup = 1000, cores = 4,
+  refresh = 0, log_lik = TRUE
+)
+```
+
+```{r fig.width=6, fig.height=4}
+compare(linear7h1, quadratic7h1) %>% pander()
+compare(linear7h1, quadratic7h1) %>% plot()
+```
+
+Based on this plot using WAIC, the quadratic model has a slight edge over the linear model, as both its in and out sample deviances are closer to 0. The actual WAIC lines here are overall pretty similar and are fairly uncertain of what a possible WAIC would be for one of these models. From the difference line, there does seem to be some certainty that the quadratic model is better, as it just barely crosses the vertical line at the quadratic model's WAIC, but it is not 100% certain that quadratic is better.
+
+
+```{r fig.width=6, fig.height=4}
+compare(linear7h1, quadratic7h1, func = PSIS) %>% pander()
+compare(linear7h1, quadratic7h1, func = PSIS) %>% plot()
+```
+
+```{r}
+linear7h1 %>% stanfit() %>% loo::loo() %>% plot()
+```
+
+For PSIS, there is less certainty that the quadratic model is better, though the quadratic model is barely better. There is one k value over 1, which isn't great, but everything else seems to be less than 0.5.
+
+To conclude, there isn't a big difference between the linear and quadratic models based on WAIC and PSIS, so the relationship between tax rate and tax revenue isn't more quadratic than linear or vise versa.
+
+# 7h2
+
+```{r}
+linear7h1 %>% rethinking::PSIS(pointwise = TRUE) %>% head(12)
+```
+
+In the last problem we saw that there was one data point with a k>1, and that point is observation 12.
+
+```{r}
+Laffer <- Laffer %>%
+  filter(tax_revenueSTZD < 3.69)
+```
+
+```{r results = FALSE}
+quadratic7h2 <- ulam(
+  data = Laffer,
+  alist(
+    tax_revenueSTZD ~ dstudent(2, mu, sigma),
+    mu <- a + b1*tax_rateSTZD + b2*tax_rateSTZD^2,
+    a ~ dnorm(0, 0.2),
+    b1 ~ dnorm(0, 0.5),
+    b2 ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, iter = 4000, warmup = 1000, cores = 4,
+  refresh = 0, log_lik = TRUE)
+```
+
+```{r results = FALSE}
+linear7h2 <- ulam(
+  data = Laffer,
+  alist(
+    tax_revenueSTZD ~ dstudent(2, mu, sigma),
+    mu <- a + b*tax_rateSTZD,
+    a ~ dnorm(0, 0.2),
+    b ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ),
+  chains = 4, iter = 4000, warmup = 1000, cores = 4,
+  refresh = 0, log_lik = TRUE)
+```
+
+```{r fig.width = 6, fig.height = 4}
+compare(linear7h2, quadratic7h2) %>% pander()
+compare(linear7h2, quadratic7h2) %>% plot()
+```
+
+```{r fig.width = 6, fig.height = 4}
+compare(linear7h2, quadratic7h2, func = PSIS) %>% pander()
+compare(linear7h2, quadratic7h2, func = PSIS) %>% plot()
+```
+
+Quadratic is better overall in comparing it to linear, though there is not 100% certainty in either the WAIC or PSIS that this is the case. Removing the outlier also drops both the WAIC and the PSIS down. It doesn't really seem like a curved relationship is dependent on the outlier point and still makes for a better model overall than it did when the outlier was modeled.
+
+# 7h5
+
+```{r}
+data(foxes)
+foxes <- foxes %>%
+  mutate(avgfoodSTZD = standardize(avgfood),
+         areaSTZD = standardize(area),
+         groupsizeSTZD = standardize(groupsize),
+         weightSTZD = standardize(weight))
+```
+
+```{r}
+m7h5a <- quap(
+  data = foxes,
+  alist(
+    weightSTZD ~ dnorm(mu, sigma),
+    mu <- a + bv*avgfoodSTZD + ba*areaSTZD + bg*groupsizeSTZD,
+    a ~ dnorm(0, 0.2),
+    c(bv, ba, bg) ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  )
+)
+```
+
+```{r}
+m7h5b <- quap(
+  data = foxes,
+  alist(
+    weightSTZD ~ dnorm(mu, sigma),
+    mu <- a + bv*avgfoodSTZD + bg*groupsizeSTZD,
+    a ~ dnorm(0, 0.2),
+    c(bv, bg) ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  )
+)
+```
+
+```{r}
+m7h5c <- quap(
+  data = foxes,
+  alist(
+    weightSTZD ~ dnorm(mu, sigma),
+    mu <- a + ba*areaSTZD + bg*groupsizeSTZD,
+    a ~ dnorm(0, 0.2),
+    c(ba, bg) ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  )
+)
+```
+
+```{r}
+m7h5d <- quap(
+  data = foxes,
+  alist(
+    weightSTZD ~ dnorm(mu, sigma),
+    mu <- a + bv*avgfoodSTZD,
+    a ~ dnorm(0, 0.2),
+    bv ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  )
+)
+```
+
+```{r}
+m7h5e <- quap(
+  data = foxes,
+  alist(
+    weightSTZD ~ dnorm(mu, sigma),
+    mu <- a + ba*areaSTZD,
+    a ~ dnorm(0, 0.2),
+    ba ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  )
+)
+```
+
+```{r fig.width=6, fig.height=4}
+compare(m7h5a, m7h5b, m7h5c, m7h5d, m7h5e) %>% pander()
+compare(m7h5a, m7h5b, m7h5c, m7h5d, m7h5e) %>% plot()
+```
+
+The first three models have better WAIC's than the last two. The last two only have one slope, while the other three have more than one. DSE values for the last two models are also larger. Area shares much of the same predictions as avgfood because of the relationship of the DAG, as the only way to get from area to weight is through avgfood. The other three models are similarly better because they are accounting for more complete paths. 
